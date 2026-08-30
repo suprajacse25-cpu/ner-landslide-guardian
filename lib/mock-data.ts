@@ -1,10 +1,12 @@
-import { computeRiskScore, riskLevelFromScore } from './risk-engine'
+import { computeRiskScore, riskLevelFromScore, trendFromScores } from './risk-engine'
 import type {
   Alert,
   HistoryPoint,
   Location,
+  RiskTrend,
   Sensor,
   SensorReadings,
+  StateSummary,
 } from './types'
 
 function rand(min: number, max: number): number {
@@ -14,6 +16,27 @@ function rand(min: number, max: number): number {
 function round(value: number, dp = 1): number {
   const f = 10 ** dp
   return Math.round(value * f) / f
+}
+
+function timeLabel(): string {
+  return new Date().toLocaleTimeString('en-IN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
+}
+
+/**
+ * Extreme readings for the "Simulate High-Risk Event" demo — a monsoon
+ * cloudburst scenario that pushes exposed sites into HIGH/CRITICAL.
+ */
+export function generateHazardReadings(): SensorReadings {
+  return {
+    rainfall: round(rand(175, 265)),
+    soilMoisture: round(rand(84, 98)),
+    slope: round(rand(38, 54)),
+    groundMovement: round(rand(18, 34)),
+  }
 }
 
 /**
@@ -59,6 +82,8 @@ const SEEDS: Seed[] = [
 export function buildLocation(seed: Seed): Location {
   const readings = generateReadings(seed.intensity)
   const riskScore = computeRiskScore(readings)
+  // Synthesise a plausible earlier reading to seed an initial trend.
+  const prevScore = computeRiskScore(generateReadings(seed.intensity))
   return {
     id: seed.id,
     name: seed.name,
@@ -69,7 +94,10 @@ export function buildLocation(seed: Seed): Location {
     sensorStatus: seed.offline ? 'OFFLINE' : 'ONLINE',
     readings,
     riskScore,
+    prevScore,
     riskLevel: riskLevelFromScore(riskScore),
+    trend: trendFromScores(prevScore, riskScore),
+    updatedAt: timeLabel(),
   }
 }
 
@@ -90,8 +118,67 @@ export function refreshLocation(location: Location): Location {
     ...location,
     readings,
     riskScore,
+    prevScore: location.riskScore,
     riskLevel: riskLevelFromScore(riskScore),
+    trend: trendFromScores(location.riskScore, riskScore),
+    updatedAt: timeLabel(),
   }
+}
+
+/**
+ * Force a location into a hazardous state for the "Simulate High-Risk Event"
+ * demo. Offline sensors stay dark (no data), mirroring a real failure.
+ */
+export function escalateLocation(location: Location): Location {
+  if (location.sensorStatus === 'OFFLINE') {
+    return location
+  }
+  const readings = generateHazardReadings()
+  const riskScore = computeRiskScore(readings)
+  return {
+    ...location,
+    readings,
+    riskScore,
+    prevScore: location.riskScore,
+    riskLevel: riskLevelFromScore(riskScore),
+    trend: trendFromScores(location.riskScore, riskScore),
+    updatedAt: timeLabel(),
+  }
+}
+
+function dominantTrend(trends: RiskTrend[]): RiskTrend {
+  if (trends.includes('INCREASING')) return 'INCREASING'
+  if (trends.every((t) => t === 'DECREASING')) return 'DECREASING'
+  return 'STABLE'
+}
+
+/** Aggregate monitored sites into a state-wise risk summary. */
+export function buildStateSummary(locations: Location[]): StateSummary[] {
+  const byState = new Map<string, Location[]>()
+  for (const loc of locations) {
+    const list = byState.get(loc.state) ?? []
+    list.push(loc)
+    byState.set(loc.state, list)
+  }
+
+  return Array.from(byState.entries())
+    .map(([state, sites]) => {
+      // Bias the state score toward its worst site (worst-case posture).
+      const worst = Math.max(...sites.map((s) => s.riskScore))
+      const avg = sites.reduce((sum, s) => sum + s.riskScore, 0) / sites.length
+      const score = Math.round(worst * 0.6 + avg * 0.4)
+      return {
+        state,
+        score,
+        level: riskLevelFromScore(score),
+        siteCount: sites.length,
+        highRiskCount: sites.filter(
+          (s) => s.riskLevel === 'HIGH' || s.riskLevel === 'CRITICAL',
+        ).length,
+        trend: dominantTrend(sites.map((s) => s.trend)),
+      }
+    })
+    .sort((a, b) => b.score - a.score)
 }
 
 /** Build a 24-point history series (hourly) ending at "now" for a location. */

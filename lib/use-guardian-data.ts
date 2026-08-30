@@ -2,14 +2,23 @@
 
 import { useCallback, useMemo, useState } from 'react'
 import {
+  buildStateSummary,
   deriveAlerts,
+  escalateLocation,
   generateHistory,
   generateLocations,
   generateSensors,
   refreshLocation,
 } from './mock-data'
 import { computeRiskScore, riskLevelFromScore } from './risk-engine'
-import type { Alert, HistoryPoint, Location, RiskLevel, Sensor } from './types'
+import type {
+  Alert,
+  HistoryPoint,
+  Location,
+  RiskLevel,
+  Sensor,
+  StateSummary,
+} from './types'
 
 export interface GuardianData {
   locations: Location[]
@@ -18,6 +27,8 @@ export interface GuardianData {
   history: HistoryPoint[]
   alerts: Alert[]
   sensors: Sensor[]
+  stateSummary: StateSummary[]
+  emergency: boolean
   overall: {
     score: number
     level: RiskLevel
@@ -29,6 +40,7 @@ export interface GuardianData {
   }
   selectLocation: (id: string) => void
   checkRisk: () => void
+  simulateEvent: () => void
 }
 
 function nowLabel(): string {
@@ -49,6 +61,7 @@ export function useGuardianData(): GuardianData {
   const [historyBySelection, setHistory] = useState<Record<string, HistoryPoint[]>>({})
   const [lastUpdated, setLastUpdated] = useState<string>(() => nowLabel())
   const [scanning, setScanning] = useState(false)
+  const [emergency, setEmergency] = useState(false)
 
   const selected = useMemo(
     () => locations.find((l) => l.id === selectedId) ?? locations[0],
@@ -82,12 +95,16 @@ export function useGuardianData(): GuardianData {
 
   const alerts = useMemo(() => deriveAlerts(locations), [locations])
 
+  const stateSummary = useMemo(() => buildStateSummary(locations), [locations])
+
   const selectLocation = useCallback((id: string) => {
     setSelectedId(id)
   }, [])
 
   const checkRisk = useCallback(() => {
     setScanning(true)
+    // A normal re-scan returns the region to baseline monitoring.
+    setEmergency(false)
     // Simulate a short scan so the button feels like a real reading cycle.
     setTimeout(() => {
       setLocations((prev) => prev.map((l) => refreshLocation(l)))
@@ -114,6 +131,25 @@ export function useGuardianData(): GuardianData {
     }, 850)
   }, [selectedId])
 
+  const simulateEvent = useCallback(() => {
+    setScanning(true)
+    setTimeout(() => {
+      // Push exposed mountainous sites (higher baseline intensity) into a
+      // hazardous state to demonstrate the emergency response flow.
+      setLocations((prev) =>
+        prev.map((l) => (l.riskScore >= 45 ? escalateLocation(l) : refreshLocation(l))),
+      )
+      setHistory((prev) => {
+        const next = { ...prev }
+        delete next[selectedId]
+        return next
+      })
+      setEmergency(true)
+      setLastUpdated(nowLabel())
+      setScanning(false)
+    }, 850)
+  }, [selectedId])
+
   return {
     locations,
     selectedId,
@@ -121,9 +157,12 @@ export function useGuardianData(): GuardianData {
     history,
     alerts,
     sensors,
+    stateSummary,
+    emergency,
     overall,
     selectLocation,
     checkRisk,
+    simulateEvent,
   }
 }
 

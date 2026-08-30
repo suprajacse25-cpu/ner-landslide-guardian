@@ -2,6 +2,8 @@ export type RiskLevel = 'LOW' | 'MODERATE' | 'HIGH' | 'CRITICAL'
 
 export type SensorStatus = 'ONLINE' | 'OFFLINE'
 
+export type RiskTrend = 'INCREASING' | 'STABLE' | 'DECREASING'
+
 export interface SensorReadings {
   /** Cumulative rainfall over the last 24h in mm */
   rainfall: number
@@ -24,7 +26,21 @@ export interface Location {
   sensorStatus: SensorStatus
   readings: SensorReadings
   riskScore: number
+  /** Previous score before the latest reading — used to derive the trend */
+  prevScore: number
   riskLevel: RiskLevel
+  trend: RiskTrend
+  /** Human-readable time the readings were last refreshed */
+  updatedAt: string
+}
+
+export interface StateSummary {
+  state: string
+  score: number
+  level: RiskLevel
+  siteCount: number
+  highRiskCount: number
+  trend: RiskTrend
 }
 
 export interface HistoryPoint {

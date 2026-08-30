@@ -1,4 +1,4 @@
-import type { RiskLevel, SensorReadings } from './types'
+import type { RiskLevel, RiskTrend, SensorReadings } from './types'
 
 /**
  * Demo weighted risk model.
@@ -50,6 +50,49 @@ export function riskLevelFromScore(score: number): RiskLevel {
   if (score >= 60) return 'HIGH'
   if (score >= 35) return 'MODERATE'
   return 'LOW'
+}
+
+/** Classify the direction of change between two risk scores. */
+export function trendFromScores(prev: number, curr: number): RiskTrend {
+  const delta = curr - prev
+  if (delta > 4) return 'INCREASING'
+  if (delta < -4) return 'DECREASING'
+  return 'STABLE'
+}
+
+export const TREND_META: Record<
+  RiskTrend,
+  { label: string; token: string; direction: 'up' | 'down' | 'flat' }
+> = {
+  INCREASING: { label: 'Increasing', token: 'var(--risk-high)', direction: 'up' },
+  STABLE: { label: 'Stable', token: 'var(--muted-foreground)', direction: 'flat' },
+  DECREASING: { label: 'Decreasing', token: 'var(--risk-low)', direction: 'down' },
+}
+
+/** Recommended safety actions surfaced to responders for each risk level. */
+export const SAFETY_ACTIONS: Record<RiskLevel, string[]> = {
+  LOW: [
+    'Continue routine automated monitoring.',
+    'Keep drainage channels and slope catchments clear.',
+    'Maintain community awareness of reporting channels.',
+  ],
+  MODERATE: [
+    'Increase sensor polling to 15-minute intervals.',
+    'Notify the district disaster management cell.',
+    'Advise residents on steep slopes to stay alert to warnings.',
+  ],
+  HIGH: [
+    'Issue a public early warning for the affected area.',
+    'Pre-position NDRF/SDRF response teams.',
+    'Restrict movement along slope-adjacent roads and trails.',
+    'Ready shelters and identify vulnerable households.',
+  ],
+  CRITICAL: [
+    'Order immediate evacuation of downslope settlements.',
+    'Close national-highway stretches crossing the hazard zone.',
+    'Activate NDRF/SDRF and district emergency operations centre.',
+    'Broadcast emergency alerts on all available channels.',
+  ],
 }
 
 export interface RiskFactorBreakdown {
